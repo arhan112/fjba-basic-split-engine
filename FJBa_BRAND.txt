@@ -1,0 +1,24 @@
+========================================
+                 FjBa BRAND
+========================================
+
+Brand: FjBa
+Generator: FjBa Plugin Generator
+Generator version: 8.3.0
+
+Plugin display name: Split_Line_Take_Polyinfo_V8_1
+Plugin folder name: Split_Line_Take_Polyinfo_V8_1
+
+Mandatory brand logo:
+fjba_logo.png
+
+QGIS action icon:
+icon.png
+
+Technical stamp:
+.fjba_stamp_state.json
+
+Generated UTC:
+2026-11-09T08:33:15.654072+00:00
+
+========================================

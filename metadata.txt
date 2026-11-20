@@ -1,0 +1,35 @@
+
+[general]
+name=FjBa Basic Split Engine
+qgisMinimumVersion=3.0
+qgisMaximumVersion=4.99
+description=Split line layers at polygon boundaries and transfer selected polygon attributes.
+about=FjBa Basic Split Engine is a vector-processing tool for QGIS.
+    It supports multiple line and polygon layers, polygon geometry repair,
+    boundary extraction, line splitting and polygon attribute transfer.
+
+    Attribute assignment uses the polygon with the longest line intersection
+    for each source polygon layer.
+
+    The output is created as a temporary in-memory vector layer and
+    added to the current QGIS project.
+
+    Features include progress reporting, a processing log and
+    a cancellation request.
+
+    Processing is synchronous in this edition. Large jobs may
+    temporarily make the QGIS interface less responsive.
+
+    QGIS 3.x and QGIS 4.x compatibility is an intended target
+    and requires testing in the respective releases.
+version=1.2.0
+author=FjBa
+email=fjoartbajraktari15@gmail.com
+category=Vector
+tags=vector, line splitting, polygon, attributes, geoprocessing
+experimental=True
+deprecated=False
+icon=icon.png
+tracker=https://github.com/arhan112/FjBa-Basic-Scale-Grid-Generator/issues
+repository=https://github.com/arhan112/FjBa-Basic-Scale-Grid-Generator
+homepage=https://github.com/arhan112/FjBa-Basic-Scale-Grid-Generator
