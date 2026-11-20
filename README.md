@@ -1,6 +1,6 @@
 # FjBa Basic Split Engine
 
-**Version 1.2.1 | Basic Edition | QGIS**
+**Version 1.2.2 | Basic Edition | QGIS**
 
 A geospatial processing tool for splitting line datasets using polygon boundaries and transferring selected polygon attributes to the resulting line segments.
 
@@ -198,7 +198,7 @@ Additional PyQGIS functionality is used for spatial indexing, geometry intersect
 
 ## Version History
 
-### Version 1.2.1 – Basic Edition
+### Version 1.2.2 – Basic Edition
 
 - Multiple line layer selection.
 - Multiple polygon layer selection.
