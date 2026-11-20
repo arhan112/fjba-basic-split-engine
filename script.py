@@ -1007,6 +1007,7 @@ class UltimateSplitEngineBasic(QtWidgets.QDialog):
     # LOAD LAYERS
     # ========================================================
 
+
     def populate_layers(self):
 
         if self.running:
@@ -1018,17 +1019,24 @@ class UltimateSplitEngineBasic(QtWidgets.QDialog):
 
         self.layer_cache.clear()
 
+        geometry_enum = getattr(
+            QgsWkbTypes,
+            "GeometryType",
+            QgsWkbTypes
+        )
+
         for layer in self.project.mapLayers().values():
 
-            if layer.type() != Qgis.LayerType.Vector:
+            # Only process vector layers.
+            if layer.type() != QgsMapLayer.VectorLayer:
                 continue
 
             if not layer.isValid():
                 continue
 
-            geometry_enum = getattr(QgsWkbTypes, "GeometryType", QgsWkbTypes)
+            geometry_type = layer.geometryType()
 
-            if layer.geometryType() == geometry_enum.LineGeometry:
+            if geometry_type == geometry_enum.LineGeometry:
 
                 item = QtWidgets.QListWidgetItem(
                     layer.name()
@@ -1041,7 +1049,7 @@ class UltimateSplitEngineBasic(QtWidgets.QDialog):
 
                 self.line_list.addItem(item)
 
-            elif layer.geometryType() == geometry_enum.PolygonGeometry:
+            elif geometry_type == geometry_enum.PolygonGeometry:
 
                 item = QtWidgets.QListWidgetItem(
                     layer.name()
@@ -1815,36 +1823,42 @@ class UltimateSplitEngineBasic(QtWidgets.QDialog):
 _fjba_split_window = None
 
 
+
 def main(iface):
 
     global _fjba_split_window
 
     try:
 
-        if (
-            _fjba_split_window is not None
-            and _fjba_split_window.isVisible()
-        ):
+        if _fjba_split_window is not None:
 
-            _fjba_split_window.raise_()
+            try:
 
-            _fjba_split_window.activateWindow()
+                if _fjba_split_window.isVisible():
 
-            return _fjba_split_window
+                    _fjba_split_window.raise_()
+                    _fjba_split_window.activateWindow()
+
+                    return _fjba_split_window
+
+            except RuntimeError:
+
+                # Previous Qt window was already deleted.
+                _fjba_split_window = None
 
         _fjba_split_window = UltimateSplitEngineBasic(
             iface
         )
 
         _fjba_split_window.show()
-
         _fjba_split_window.raise_()
-
         _fjba_split_window.activateWindow()
 
         return _fjba_split_window
 
     except Exception:
+
+        _fjba_split_window = None
 
         QtWidgets.QMessageBox.critical(
             iface.mainWindow(),
@@ -1853,6 +1867,7 @@ def main(iface):
         )
 
         return None
+
 
 
 # ============================================================
