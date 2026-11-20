@@ -1028,7 +1028,7 @@ class UltimateSplitEngineBasic(QtWidgets.QDialog):
         for layer in self.project.mapLayers().values():
 
             # Only process vector layers.
-            if layer.type() != QgsMapLayer.VectorLayer:
+            if layer.type() != QgsMapLayer.LayerType.VectorLayer:
                 continue
 
             if not layer.isValid():
