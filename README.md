@@ -198,7 +198,7 @@ Additional PyQGIS functionality is used for spatial indexing, geometry intersect
 
 ## Version History
 
-### Version 1.2.0 – Basic Edition
+### Version 1.2.1 – Basic Edition
 
 - Multiple line layer selection.
 - Multiple polygon layer selection.
