@@ -1,7 +1,7 @@
 
 # ============================================================
 # FjBa | BASIC ULTIMATE SPLIT ENGINE FOR QGIS
-# Version 1.2 | Basic Edition
+# Version 1.2.1 | Basic Edition
 #
 # FjBa metallic emerald / gold branding
 # Animated metallic logo with light sweep
