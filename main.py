@@ -167,46 +167,38 @@ WINDOW_CLOSE = enum_value(
 def log_message(message, level=None):
     """
     Write a message to the QGIS log.
-
-    Falls back to the Python console if QGIS logging
-    is unavailable.
+    Falls back to stderr if QGIS logging is unavailable.
     """
 
+    if level is None:
+        level = Qgis.MessageLevel.Warning
+
     try:
-
-        if level is None:
-            level = Qgis.Warning
-
         QgsMessageLog.logMessage(
             str(message),
             PLUGIN_DISPLAY_NAME,
             level
         )
 
-    except Exception:
+    except Exception as error:
+        sys.stderr.write(
+            "[FjBa Plugin] QGIS logging failed: {}\n".format(error)
+        )
 
-        try:
-            print(
-                "[FjBa Plugin] {}".format(message)
-            )
-        except Exception:
-            pass
+        sys.stderr.write(
+            "[FjBa Plugin] {}\n".format(message)
+        )
 
 
 def log_exception(context):
     """Write the current exception traceback to the QGIS log."""
 
-    try:
+    message = "{}\n{}".format(
+        context,
+        traceback.format_exc()
+    )
 
-        log_message(
-            "{}\n{}".format(
-                context,
-                traceback.format_exc()
-            )
-        )
-
-    except Exception:
-        pass
+    log_message(message)
 
 
 def safe_close(widget):
