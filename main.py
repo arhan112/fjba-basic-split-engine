@@ -6,6 +6,7 @@ import inspect
 import traceback
 import weakref
 
+from qgis.core import QgsMessageLog, Qgis
 from qgis.PyQt.QtCore import Qt, QObject, QEvent
 from qgis.PyQt.QtGui import QIcon, QPixmap
 from qgis.PyQt.QtWidgets import (
@@ -46,6 +47,7 @@ class FjBaBrandingManager(QObject):
     def stop_capture(self):
         self.active = False
 
+
     def _is_supported_window(self, widget):
 
         if not isinstance(widget, QWidget):
@@ -57,10 +59,13 @@ class FjBaBrandingManager(QObject):
         try:
             if widget is self.iface.mainWindow():
                 return False
-        except Exception:
-            pass
+
+        except RuntimeError:
+            # The QGIS main window may no longer be available.
+            return False
 
         return True
+
 
     def eventFilter(self, watched, event):
 
@@ -186,25 +191,56 @@ class FjBaBrandingManager(QObject):
         if isinstance(widget, QWidget):
             self.register_window(widget)
 
+
     def unload(self):
 
-        self.active = False
-
-        for record in list(self.windows.values()):
+        if self.action is not None:
 
             try:
-                record["label"].deleteLater()
-            except RuntimeError:
-                pass
-
-        self.windows.clear()
-
-        if self.application is not None:
+                self.iface.removePluginMenu(
+                    "&FjBa Generated Plugins",
+                    self.action
+                )
+            except (RuntimeError, AttributeError) as error:
+                QgsMessageLog.logMessage(
+                    f"Could not remove plugin menu action: {error}",
+                    PLUGIN_DISPLAY_NAME,
+                    Qgis.Warning
+                )
 
             try:
-                self.application.removeEventFilter(self)
-            except RuntimeError:
-                pass
+                self.iface.removeToolBarIcon(self.action)
+            except (RuntimeError, AttributeError) as error:
+                QgsMessageLog.logMessage(
+                    f"Could not remove toolbar icon: {error}",
+                    PLUGIN_DISPLAY_NAME,
+                    Qgis.Warning
+                )
+
+            self.action = None
+
+        self.branding.unload()
+
+        for name in (
+            "launch_window",
+            "script_window",
+            "about_dialog",
+        ):
+
+            widget = getattr(self, name, None)
+
+            if widget is not None:
+
+                try:
+                    widget.close()
+                except RuntimeError as error:
+                    QgsMessageLog.logMessage(
+                        f"Could not close {name}: {error}",
+                        PLUGIN_DISPLAY_NAME,
+                        Qgis.Warning
+                    )
+
+                setattr(self, name, None)
 
 
 class FjBaGeneratedPlugin:
