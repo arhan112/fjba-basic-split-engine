@@ -22,7 +22,7 @@ about=FjBa Basic Split Engine is a vector-processing tool for QGIS.
 
     QGIS 3.x and QGIS 4.x compatibility is an intended target
     and requires testing in the respective releases.
-version=1.2.1
+version=1.2.2
 author=FjBa
 email=fjoartbajraktari15@gmail.com
 category=Vector
