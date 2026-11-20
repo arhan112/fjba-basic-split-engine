@@ -1,1611 +1,1875 @@
 
-# -*- coding: utf-8 -*-
-"""
-==========================================================================
-FjBa Plugin Generator V8.3 PRO
-QGIS Plugin Main Module
-==========================================================================
+# ============================================================
+# FjBa | BASIC ULTIMATE SPLIT ENGINE FOR QGIS
+# Version 1.2 | Basic Edition
+#
+# FjBa metallic emerald / gold branding
+# Animated metallic logo with light sweep
+#
+# Designed for QGIS 3.x (PyQt5) and QGIS 4.x (PyQt6) via qgis.PyQt
+#
+# GUI:
+# - Standard minimize / maximize / close buttons
+# - Resizable desktop window
+# - Adaptive initial window size
+# - Laptop-friendly minimum dimensions
+# - Scrollable content area
+#
+# BASIC FEATURES
+# - Multiple line layer selection
+# - Multiple polygon layer selection
+# - Polygon geometry repair
+# - Polygon boundary extraction
+# - Line splitting
+# - Spatial index optimization
+# - Polygon attribute transfer
+# - Longest intersection assignment
+# - Original attribute type preservation
+# - Progress monitoring
+# - Processing cancellation
+# - Processing log
+# - Memory output layer
+#
+# IMPORTANT:
+# - Processing is synchronous in this edition; large jobs may temporarily
+#   make the QGIS interface less responsive.
+# - Static source review and syntax validation do not replace testing inside
+#   each supported QGIS release.
+#
+# ============================================================
 
-Features:
-    - Qt5 / Qt6 compatibility
-    - Safe plugin initialization and unloading
-    - Correct QAction ownership
-    - Automatic FjBa branding for supported windows
-    - Dynamic script.py loading
-    - Safe window management
-    - Plugin reload support
-    - Error logging and diagnostic messages
-
-IMPORTANT:
-    FjBaBrandingManager does NOT own the plugin QAction.
-    Only FjBaGeneratedPlugin manages self.action.
-==========================================================================
-"""
-
-import os
-import sys
-import inspect
+import datetime
+import re
 import traceback
-import weakref
-import importlib.util
-import builtins
 
-from qgis.core import QgsMessageLog, Qgis
-from qgis.PyQt.QtCore import Qt, QObject, QEvent
-from qgis.PyQt.QtGui import QIcon, QPixmap
-
-# QAction moved from QtWidgets to QtGui in Qt6.
-try:
-    from qgis.PyQt.QtGui import QAction
-except ImportError:
-    from qgis.PyQt.QtWidgets import QAction
-
-from qgis.PyQt.QtWidgets import (
-    QApplication,
-    QDialog,
-    QWidget,
-    QLabel,
-    QVBoxLayout,
-    QPushButton,
-    QMessageBox,
+from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtCore import Qt, QVariant, QTimer
+from qgis.PyQt.QtGui import (
+    QColor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QLinearGradient,
+    QPen,
+    QBrush
 )
+
+from qgis.core import (
+    QgsProject,
+    QgsMapLayer,
+    QgsVectorLayer,
+    QgsFeature,
+    QgsField,
+    QgsFields,
+    QgsGeometry,
+    QgsSpatialIndex,
+    QgsWkbTypes,
+    QgsProcessingFeedback
+)
+
+import processing
 
 
 # ============================================================
-# PLUGIN CONFIGURATION
+# QT COMPATIBILITY
 # ============================================================
+# Prefer scoped enums (PyQt6); fall back to legacy aliases (PyQt5).
+# qgis.PyQt selects the Qt binding shipped with the running QGIS.
 
-PLUGIN_DISPLAY_NAME = (
-    "FjBa_Basic_Split_Line_Take_Polyinformation"
+_QtWindowType = getattr(Qt, "WindowType", Qt)
+_QtWidgetAttribute = getattr(Qt, "WidgetAttribute", Qt)
+_QPainterRenderHint = getattr(QPainter, "RenderHint", QPainter)
+_QFontWeight = getattr(QFont, "Weight", QFont)
+_QtItemDataRole = getattr(Qt, "ItemDataRole", Qt)
+_QtAlignmentFlag = getattr(Qt, "AlignmentFlag", Qt)
+_QtScrollBarPolicy = getattr(Qt, "ScrollBarPolicy", Qt)
+_QFrameShape = getattr(QtWidgets.QFrame, "Shape", QtWidgets.QFrame)
+_QAbstractSelectionMode = getattr(
+    QtWidgets.QAbstractItemView, "SelectionMode", QtWidgets.QAbstractItemView
+)
+_QMessageBoxButton = getattr(
+    QtWidgets.QMessageBox, "StandardButton", QtWidgets.QMessageBox
 )
 
-PLUGIN_MENU_NAME = "&FjBa Generated Plugins"
+WINDOW_MINIMIZE = _QtWindowType.WindowMinimizeButtonHint
+WINDOW_MAXIMIZE = _QtWindowType.WindowMaximizeButtonHint
+WINDOW_CLOSE = _QtWindowType.WindowCloseButtonHint
+WINDOW_SYSTEM_MENU = _QtWindowType.WindowSystemMenuHint
 
-SCRIPT_MODULE_SUFFIX = "._fjba_user_script"
-
-
-# ============================================================
-# QT5 / QT6 COMPATIBILITY
-# ============================================================
-
-def enum_value(owner, group_name, member_name):
-    """
-    Resolve Qt5 and Qt6 enum members.
-
-    Qt6 groups many enums into nested classes.
-    Qt5 commonly exposes the members directly.
-    """
-
-    group = getattr(owner, group_name, owner)
-
-    return getattr(group, member_name)
-
-
-ALIGN_CENTER = enum_value(
-    Qt,
-    "AlignmentFlag",
-    "AlignCenter"
-)
-
-WA_TRANSPARENT = enum_value(
-    Qt,
-    "WidgetAttribute",
-    "WA_TransparentForMouseEvents"
-)
-
-WA_NO_BACKGROUND = enum_value(
-    Qt,
-    "WidgetAttribute",
-    "WA_NoSystemBackground"
-)
-
-KEEP_ASPECT = enum_value(
-    Qt,
-    "AspectRatioMode",
-    "KeepAspectRatio"
-)
-
-SMOOTH_TRANSFORM = enum_value(
-    Qt,
-    "TransformationMode",
-    "SmoothTransformation"
-)
-
-EVENT_SHOW = enum_value(
-    QEvent,
-    "Type",
-    "Show"
-)
-
-EVENT_RESIZE = enum_value(
-    QEvent,
-    "Type",
-    "Resize"
-)
-
-EVENT_MOVE = enum_value(
-    QEvent,
-    "Type",
-    "Move"
-)
-
-EVENT_WINDOW_STATE = enum_value(
-    QEvent,
-    "Type",
-    "WindowStateChange"
-)
-
-EVENT_CLOSE = enum_value(
-    QEvent,
-    "Type",
-    "Close"
-)
-
-WINDOW_MINIMIZE = enum_value(
-    Qt,
-    "WindowType",
-    "WindowMinimizeButtonHint"
-)
-
-WINDOW_MAXIMIZE = enum_value(
-    Qt,
-    "WindowType",
-    "WindowMaximizeButtonHint"
-)
-
-WINDOW_CLOSE = enum_value(
-    Qt,
-    "WindowType",
-    "WindowCloseButtonHint"
-)
-
+WA_TRANSLUCENT = _QtWidgetAttribute.WA_TranslucentBackground
+ANTIALIASING = _QPainterRenderHint.Antialiasing
+FONT_BOLD = _QFontWeight.Bold
+USER_ROLE = _QtItemDataRole.UserRole
+ALIGN_CENTER = _QtAlignmentFlag.AlignCenter
+SCROLLBAR_ALWAYS_OFF = _QtScrollBarPolicy.ScrollBarAlwaysOff
+FRAME_NO_FRAME = _QFrameShape.NoFrame
+MULTI_SELECTION = _QAbstractSelectionMode.MultiSelection
+MESSAGE_YES = _QMessageBoxButton.Yes
+MESSAGE_NO = _QMessageBoxButton.No
 
 # ============================================================
-# LOGGING
+# ANIMATED FjBa METALLIC LOGO
 # ============================================================
 
-def log_message(message, level=None):
-    """
-    Write a message to the QGIS log.
+class FjBaMetallicLogo(QtWidgets.QWidget):
 
-    Falls back to the Python console if QGIS logging
-    is unavailable.
-    """
+    def __init__(self, parent=None):
 
-    try:
+        super().__init__(parent)
 
-        if level is None:
-            level = Qgis.Warning
+        self.phase = 0.0
 
-        QgsMessageLog.logMessage(
-            str(message),
-            PLUGIN_DISPLAY_NAME,
-            level
+        self.setMinimumSize(80, 65)
+        self.setMaximumSize(110, 90)
+
+        self.setAttribute(
+            WA_TRANSLUCENT,
+            True
         )
 
-    except Exception:
+        self.timer = QTimer(self)
 
-        try:
-            print(
-                "[FjBa Plugin] {}".format(message)
-            )
-        except Exception:
-            pass
-
-
-def log_exception(context):
-    """Write the current exception traceback to the QGIS log."""
-
-    try:
-
-        log_message(
-            "{}\n{}".format(
-                context,
-                traceback.format_exc()
-            )
+        self.timer.timeout.connect(
+            self.advance_animation
         )
 
-    except Exception:
-        pass
+        self.timer.start(35)
 
+    def advance_animation(self):
 
-def safe_close(widget):
-    """Safely close a Qt widget."""
+        self.phase = (
+            self.phase + 0.018
+        ) % 1.5
 
-    if widget is None:
-        return
+        self.update()
 
-    try:
-        widget.close()
+    def paintEvent(self, event):
 
-    except RuntimeError:
-        pass
+        painter = QPainter(self)
 
-    except Exception:
-        log_exception("Error while closing plugin window")
+        painter.setRenderHint(
+            ANTIALIASING
+        )
+
+        rect = self.rect()
+
+        font = QFont(
+            "Segoe UI",
+            27,
+            FONT_BOLD
+        )
+
+        painter.setFont(font)
+
+        text = "FjBa"
+
+        metrics = painter.fontMetrics()
+
+        if hasattr(metrics, "horizontalAdvance"):
+            text_width = metrics.horizontalAdvance(text)
+        else:
+            text_width = metrics.width(text)
+
+        x = (rect.width() - text_width) / 2
+
+        baseline = rect.height() * 0.62
+
+        path = QPainterPath()
+
+        path.addText(
+            x,
+            baseline,
+            font,
+            text
+        )
+
+        gradient = QLinearGradient(
+            0, 0,
+            rect.width(),
+            rect.height()
+        )
+
+        gradient.setColorAt(
+            0.0, QColor("#FFF2B0")
+        )
+
+        gradient.setColorAt(
+            0.22, QColor("#D5A832")
+        )
+
+        gradient.setColorAt(
+            0.45, QColor("#F9E7A0")
+        )
+
+        gradient.setColorAt(
+            0.68, QColor("#16A879")
+        )
+
+        gradient.setColorAt(
+            1.0, QColor("#075C43")
+        )
+
+        painter.setPen(
+            QPen(QColor("#B68A28"), 0.8)
+        )
+
+        painter.setBrush(
+            QBrush(gradient)
+        )
+
+        painter.drawPath(path)
+
+        # Animated light sweep
+
+        sweep_x = self.phase * rect.width()
+
+        sweep = QLinearGradient(
+            sweep_x - 12,
+            0,
+            sweep_x + 12,
+            0
+        )
+
+        sweep.setColorAt(
+            0.0,
+            QColor(255, 255, 255, 0)
+        )
+
+        sweep.setColorAt(
+            0.5,
+            QColor(255, 255, 255, 180)
+        )
+
+        sweep.setColorAt(
+            1.0,
+            QColor(255, 255, 255, 0)
+        )
+
+        painter.save()
+
+        painter.setClipPath(path)
+
+        painter.fillRect(
+            rect,
+            sweep
+        )
+
+        painter.restore()
+
+        painter.end()
+
+    def stop(self):
+
+        if self.timer.isActive():
+            self.timer.stop()
 
 
 # ============================================================
-# BRANDING MANAGER
+# PROCESSING FEEDBACK
 # ============================================================
 
-class FjBaBrandingManager(QObject):
-    """
-    Manages FjBa logo overlays on supported plugin windows.
+class SplitProcessingFeedback(QgsProcessingFeedback):
 
-    This class does NOT own:
-        - QAction
-        - Plugin menu entries
-        - Toolbar entries
+    def __init__(self, dialog):
 
-    Its unload() method only removes branding resources
-    and event filters.
-    """
+        super().__init__()
 
-    def __init__(self, iface, logo_path):
+        self.dialog = dialog
+
+    def isCanceled(self):
+
+        QtWidgets.QApplication.processEvents()
+
+        return (
+            self.dialog.cancel_flag
+            or super().isCanceled()
+        )
+
+    def setProgress(self, progress):
+
+        super().setProgress(progress)
+
+        self.dialog.progress.setValue(
+            int(progress)
+        )
+
+    def setProgressText(self, text):
+
+        super().setProgressText(text)
+
+        self.dialog.status.setText(
+            str(text)
+        )
+
+
+# ============================================================
+# MAIN WINDOW
+# ============================================================
+
+class UltimateSplitEngineBasic(QtWidgets.QDialog):
+
+    def __init__(self, iface=None):
 
         super().__init__()
 
         self.iface = iface
-        self.logo_path = logo_path
 
-        self.application = QApplication.instance()
+        self.project = QgsProject.instance()
 
-        self.active = False
-        self.windows = {}
+        self.layer_cache = {}
 
-        self.logo = QPixmap(logo_path)
+        self.cancel_flag = False
 
-        self._unloaded = False
+        self.running = False
 
-        if self.application is not None:
+        self.logo = None
 
-            self.application.installEventFilter(self)
+        self.feedback = None
 
-    # --------------------------------------------------------
-    # CAPTURE CONTROL
-    # --------------------------------------------------------
+        self.setWindowTitle(
+            "FjBa | Basic Ultimate Split Engine"
+        )
 
-    def start_capture(self):
+        # Standard desktop window buttons.
+        self.setWindowFlags(
+            self.windowFlags()
+            | WINDOW_SYSTEM_MENU
+            | WINDOW_MINIMIZE
+            | WINDOW_MAXIMIZE
+            | WINDOW_CLOSE
+        )
 
-        if self._unloaded:
+        self.setSizeGripEnabled(True)
+
+        self.setMinimumSize(720, 540)
+
+        self.resize(1080, 760)
+
+        self.create_interface()
+
+        self.apply_theme()
+
+        self.connect_signals()
+
+        self.populate_layers()
+
+        self.adjust_to_screen()
+
+    # ========================================================
+    # ADAPTIVE WINDOW SIZE
+    # ========================================================
+
+    def adjust_to_screen(self):
+
+        screen = self.screen()
+
+        if screen is None:
+            screen = QtWidgets.QApplication.primaryScreen()
+
+        if screen is None:
             return
 
-        self.active = True
+        available = screen.availableGeometry()
 
-    def stop_capture(self):
+        # Leave room for the operating system taskbar
+        # and window borders.
 
-        self.active = False
+        target_width = min(
+            1120,
+            max(720, available.width() - 60)
+        )
 
-    # --------------------------------------------------------
-    # WINDOW VALIDATION
-    # --------------------------------------------------------
+        target_height = min(
+            820,
+            max(540, available.height() - 70)
+        )
 
-    def _is_supported_window(self, widget):
+        self.resize(
+            target_width,
+            target_height
+        )
 
-        if not isinstance(widget, QWidget):
-            return False
+        self.move(
+            available.center().x() - target_width // 2,
+            available.center().y() - target_height // 2
+        )
 
-        try:
+    # ========================================================
+    # INTERFACE
+    # ========================================================
 
-            if not widget.isWindow():
-                return False
+    def create_interface(self):
 
-            if self.iface is not None:
+        outer_layout = QtWidgets.QVBoxLayout(self)
 
-                main_window = self.iface.mainWindow()
+        outer_layout.setContentsMargins(
+            10, 10, 10, 10
+        )
 
-                if widget is main_window:
-                    return False
+        outer_layout.setSpacing(0)
 
-        except RuntimeError:
-            return False
+        # Scroll area makes the interface usable on
+        # smaller laptop screens.
 
-        except Exception:
-            return False
+        self.scroll_area = QtWidgets.QScrollArea()
 
-        return True
+        self.scroll_area.setWidgetResizable(True)
 
-    # --------------------------------------------------------
-    # APPLICATION EVENT FILTER
-    # --------------------------------------------------------
+        self.scroll_area.setFrameShape(
+            FRAME_NO_FRAME
+        )
 
-    def eventFilter(self, watched, event):
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            SCROLLBAR_ALWAYS_OFF
+        )
 
-        if self._unloaded:
-            return False
+        outer_layout.addWidget(
+            self.scroll_area
+        )
 
-        try:
+        self.content_widget = QtWidgets.QWidget()
 
-            event_type = event.type()
+        self.scroll_area.setWidget(
+            self.content_widget
+        )
 
-            if event_type == EVENT_SHOW:
+        root = QtWidgets.QVBoxLayout(
+            self.content_widget
+        )
 
-                if (
-                    self.active
-                    and isinstance(watched, QWidget)
-                ):
+        root.setContentsMargins(
+            12, 12, 12, 12
+        )
 
-                    self.register_window(watched)
+        root.setSpacing(12)
 
-            elif event_type in (
-                EVENT_RESIZE,
-                EVENT_MOVE,
-                EVENT_WINDOW_STATE
-            ):
+        # ----------------------------------------------------
+        # HEADER
+        # ----------------------------------------------------
 
-                if isinstance(watched, QWidget):
+        header = QtWidgets.QFrame()
 
-                    self._position_logo(watched)
+        header.setObjectName(
+            "FjBaHeader"
+        )
 
-            elif event_type == EVENT_CLOSE:
+        header_layout = QtWidgets.QHBoxLayout(
+            header
+        )
 
-                if isinstance(watched, QWidget):
+        header_layout.setContentsMargins(
+            14, 8, 18, 8
+        )
 
-                    self._remove_window(watched)
+        self.logo = FjBaMetallicLogo()
 
-        except RuntimeError:
-            pass
+        heading_layout = QtWidgets.QVBoxLayout()
 
-        except Exception:
-            log_exception("Branding event filter error")
+        eyebrow = QtWidgets.QLabel(
+            "FjBa  /  QGIS TOOLKIT"
+        )
 
-        return False
+        eyebrow.setObjectName(
+            "FjBaEyebrow"
+        )
 
-    # --------------------------------------------------------
-    # REGISTER WINDOW
-    # --------------------------------------------------------
+        heading = QtWidgets.QLabel(
+            "Ultimate Split Engine"
+        )
 
-    def register_window(self, widget):
+        heading.setObjectName(
+            "FjBaHeading"
+        )
 
-        if self._unloaded:
-            return
+        subtitle = QtWidgets.QLabel(
+            "Line splitting and polygon attribute transfer"
+        )
 
-        if not self._is_supported_window(widget):
-            return
+        subtitle.setObjectName(
+            "FjBaSubtitle"
+        )
 
-        key = id(widget)
+        heading_layout.addWidget(eyebrow)
+        heading_layout.addWidget(heading)
+        heading_layout.addWidget(subtitle)
 
-        if key in self.windows:
+        header_layout.addWidget(
+            self.logo
+        )
 
-            self._position_logo(widget)
+        header_layout.addLayout(
+            heading_layout,
+            1
+        )
 
-            return
+        edition = QtWidgets.QLabel(
+            "BASIC EDITION 1.2"
+        )
 
-        if self.logo.isNull():
-            return
+        edition.setObjectName(
+            "FjBaEdition"
+        )
 
-        try:
+        header_layout.addWidget(
+            edition
+        )
 
-            widget.setWindowIcon(
-                QIcon(self.logo_path)
-            )
+        root.addWidget(header)
 
-            label = QLabel(widget)
+        # ----------------------------------------------------
+        # MAIN CONTENT
+        # ----------------------------------------------------
 
-            label.setObjectName(
-                "fjbaBrandOverlay"
-            )
+        content = QtWidgets.QHBoxLayout()
 
-            label.setAttribute(
-                WA_TRANSPARENT,
-                True
-            )
+        content.setSpacing(12)
 
-            label.setAttribute(
-                WA_NO_BACKGROUND,
-                True
-            )
+        root.addLayout(
+            content,
+            1
+        )
 
-            label.setAlignment(
-                ALIGN_CENTER
-            )
+        # ----------------------------------------------------
+        # LEFT PANEL
+        # ----------------------------------------------------
 
-            scaled = self.logo.scaled(
-                112,
-                48,
-                KEEP_ASPECT,
-                SMOOTH_TRANSFORM
-            )
+        left_panel = QtWidgets.QVBoxLayout()
 
-            label.setPixmap(scaled)
+        # LINE LAYERS
 
-            label.resize(
-                scaled.size()
-            )
+        line_group = QtWidgets.QGroupBox(
+            "01  ·  Line layers"
+        )
 
-            self.windows[key] = {
-                "window": weakref.ref(widget),
-                "label": label,
+        line_layout = QtWidgets.QVBoxLayout(
+            line_group
+        )
+
+        self.line_list = QtWidgets.QListWidget()
+
+        self.line_list.setSelectionMode(
+            MULTI_SELECTION
+        )
+
+        self.line_list.setMinimumHeight(85)
+
+        line_layout.addWidget(
+            self.line_list
+        )
+
+        left_panel.addWidget(
+            line_group
+        )
+
+        # POLYGON LAYERS
+
+        poly_group = QtWidgets.QGroupBox(
+            "02  ·  Polygon layers"
+        )
+
+        poly_layout = QtWidgets.QVBoxLayout(
+            poly_group
+        )
+
+        self.poly_list = QtWidgets.QListWidget()
+
+        self.poly_list.setSelectionMode(
+            MULTI_SELECTION
+        )
+
+        self.poly_list.setMinimumHeight(85)
+
+        poly_layout.addWidget(
+            self.poly_list
+        )
+
+        left_panel.addWidget(
+            poly_group
+        )
+
+        # REFRESH
+
+        self.refresh_button = QtWidgets.QPushButton(
+            "↻   Refresh project layers"
+        )
+
+        left_panel.addWidget(
+            self.refresh_button
+        )
+
+        # POLYGON FIELDS
+
+        field_group = QtWidgets.QGroupBox(
+            "03  ·  Polygon attributes"
+        )
+
+        field_layout = QtWidgets.QVBoxLayout(
+            field_group
+        )
+
+        field_description = QtWidgets.QLabel(
+            "Select the attributes to transfer to split lines."
+        )
+
+        field_description.setWordWrap(True)
+
+        field_layout.addWidget(
+            field_description
+        )
+
+        self.field_list = QtWidgets.QListWidget()
+
+        self.field_list.setSelectionMode(
+            MULTI_SELECTION
+        )
+
+        self.field_list.setMinimumHeight(100)
+
+        field_layout.addWidget(
+            self.field_list
+        )
+
+        left_panel.addWidget(
+            field_group,
+            1
+        )
+
+        # OUTPUT
+
+        output_group = QtWidgets.QGroupBox(
+            "04  ·  Output settings"
+        )
+
+        output_layout = QtWidgets.QFormLayout(
+            output_group
+        )
+
+        self.output_name = QtWidgets.QLineEdit(
+            "split_result"
+        )
+
+        output_layout.addRow(
+            "Output layer name",
+            self.output_name
+        )
+
+        left_panel.addWidget(
+            output_group
+        )
+
+        # RUN BUTTON
+
+        self.run_button = QtWidgets.QPushButton(
+            "▶   RUN SPLIT ENGINE"
+        )
+
+        self.run_button.setObjectName(
+            "FjBaPrimary"
+        )
+
+        self.run_button.setMinimumHeight(44)
+
+        left_panel.addWidget(
+            self.run_button
+        )
+
+        content.addLayout(
+            left_panel,
+            1
+        )
+
+        # ----------------------------------------------------
+        # RIGHT PANEL
+        # ----------------------------------------------------
+
+        right_panel = QtWidgets.QVBoxLayout()
+
+        # PROCESSING INFORMATION
+
+        info_group = QtWidgets.QGroupBox(
+            "Processing information"
+        )
+
+        info_layout = QtWidgets.QVBoxLayout(
+            info_group
+        )
+
+        self.status = QtWidgets.QLabel(
+            "Ready  ·  Select your input layers"
+        )
+
+        self.status.setObjectName(
+            "FjBaStatus"
+        )
+
+        self.status.setWordWrap(True)
+
+        info_layout.addWidget(
+            self.status
+        )
+
+        self.progress = QtWidgets.QProgressBar()
+
+        self.progress.setValue(0)
+
+        self.progress.setMinimumHeight(22)
+
+        info_layout.addWidget(
+            self.progress
+        )
+
+        right_panel.addWidget(
+            info_group
+        )
+
+        # PROCESSING LOG
+
+        log_group = QtWidgets.QGroupBox(
+            "Processing log"
+        )
+
+        log_layout = QtWidgets.QVBoxLayout(
+            log_group
+        )
+
+        self.log_output = QtWidgets.QTextEdit()
+
+        self.log_output.setReadOnly(True)
+
+        self.log_output.setPlaceholderText(
+            "Processing messages will appear here..."
+        )
+
+        log_layout.addWidget(
+            self.log_output
+        )
+
+        right_panel.addWidget(
+            log_group,
+            1
+        )
+
+        # CANCEL
+
+        self.cancel_button = QtWidgets.QPushButton(
+            "■   Cancel processing"
+        )
+
+        self.cancel_button.setObjectName(
+            "FjBaDanger"
+        )
+
+        self.cancel_button.setEnabled(False)
+
+        right_panel.addWidget(
+            self.cancel_button
+        )
+
+        content.addLayout(
+            right_panel,
+            1
+        )
+
+        # ----------------------------------------------------
+        # FOOTER
+        # ----------------------------------------------------
+
+        footer = QtWidgets.QLabel(
+            "FjBa  ·  BASIC GEOSPATIAL TOOLKIT  ·  QGIS"
+        )
+
+        footer.setAlignment(
+            ALIGN_CENTER
+        )
+
+        footer.setObjectName(
+            "FjBaFooter"
+        )
+
+        root.addWidget(footer)
+
+    # ========================================================
+    # THEME
+    # ========================================================
+
+    def apply_theme(self):
+
+        self.setStyleSheet("""
+            QWidget {
+                background: #0B1220;
+                color: #E7EEF8;
+                font-family: "Segoe UI", Arial;
+                font-size: 10pt;
             }
 
-            widget.installEventFilter(self)
+            QScrollArea {
+                background: #0B1220;
+                border: none;
+            }
 
-            label.show()
-            label.raise_()
+            QFrame#FjBaHeader {
+                background: #111F31;
+                border: 1px solid #2A435B;
+                border-radius: 14px;
+            }
 
-            self._position_logo(widget)
+            QLabel#FjBaEyebrow {
+                color: #64D6C5;
+                font-weight: bold;
+            }
 
-        except RuntimeError as error:
+            QLabel#FjBaHeading {
+                color: #F4F8FC;
+                font-size: 19pt;
+                font-weight: bold;
+            }
 
-            log_message(
-                "Could not brand window: {}".format(error)
-            )
+            QLabel#FjBaSubtitle {
+                color: #93A8BF;
+            }
 
-        except Exception:
+            QLabel#FjBaEdition {
+                color: #D5A832;
+                font-weight: bold;
+                border: 1px solid #806B37;
+                border-radius: 7px;
+                padding: 8px;
+            }
 
-            log_exception(
-                "Unexpected error while branding window"
-            )
+            QLabel#FjBaStatus {
+                background: #101D2E;
+                border: 1px solid #263B52;
+                border-radius: 8px;
+                padding: 10px;
+                color: #75DCCB;
+                font-weight: bold;
+            }
 
-    # --------------------------------------------------------
-    # POSITION LOGO
-    # --------------------------------------------------------
+            QLabel#FjBaFooter {
+                color: #68849B;
+                font-size: 9pt;
+                padding: 5px;
+            }
 
-    def _position_logo(self, widget):
+            QGroupBox {
+                background: #101B2B;
+                border: 1px solid #263B52;
+                border-radius: 10px;
+                margin-top: 12px;
+                padding: 12px;
+                font-weight: bold;
+                color: #78D9CD;
+            }
 
-        if self._unloaded:
-            return
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 5px;
+            }
 
-        record = self.windows.get(id(widget))
+            QLineEdit {
+                background: #0B1422;
+                color: #F0F5FB;
+                border: 1px solid #344B65;
+                border-radius: 6px;
+                padding: 7px;
+                min-height: 20px;
+            }
 
-        if record is None:
-            return
+            QLineEdit:focus {
+                border: 1px solid #55CDBD;
+            }
 
-        try:
+            QListWidget {
+                background: #0B1422;
+                alternate-background-color: #101D2E;
+                color: #E7EEF8;
+                border: 1px solid #2B4058;
+                border-radius: 8px;
+                padding: 5px;
+                selection-background-color: #175E68;
+            }
 
-            label = record.get("label")
+            QListWidget::item {
+                padding: 6px;
+                border-radius: 4px;
+            }
 
-            if label is None:
-                return
+            QPushButton {
+                background: #173A4B;
+                color: white;
+                border: 1px solid #2D6874;
+                border-radius: 7px;
+                padding: 9px;
+                font-weight: bold;
+            }
 
-            margin = 12
+            QPushButton:hover {
+                background: #20566A;
+                border-color: #56CDBD;
+            }
 
-            x = max(
-                margin,
-                widget.width() - label.width() - margin
-            )
+            QPushButton:disabled {
+                background: #273444;
+                color: #718096;
+                border-color: #354457;
+            }
 
-            y = margin
+            QPushButton#FjBaPrimary {
+                background: #1B8B83;
+                border: 1px solid #45BDB0;
+            }
 
-            label.move(x, y)
+            QPushButton#FjBaPrimary:hover {
+                background: #22A398;
+            }
 
-            label.raise_()
+            QPushButton#FjBaDanger {
+                background: #4A2935;
+                border-color: #814454;
+            }
 
-        except RuntimeError:
+            QTextEdit {
+                background: #0B1422;
+                color: #A5E6C6;
+                border: 1px solid #2B4058;
+                border-radius: 8px;
+                padding: 8px;
+                font-family: Consolas, monospace;
+                font-size: 9pt;
+            }
 
-            self._remove_window(widget)
+            QProgressBar {
+                background: #0B1422;
+                border: 1px solid #344B65;
+                border-radius: 6px;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+            }
 
-        except Exception:
+            QProgressBar::chunk {
+                background: #1B9C80;
+                border-radius: 5px;
+            }
+        """)
 
-            log_exception(
-                "Could not reposition branding logo"
-            )
+    # ========================================================
+    # SIGNALS
+    # ========================================================
 
-    # --------------------------------------------------------
-    # REMOVE SINGLE WINDOW
-    # --------------------------------------------------------
+    def connect_signals(self):
 
-    def _remove_window(self, widget):
-
-        if widget is None:
-            return
-
-        record = self.windows.pop(
-            id(widget),
-            None
+        self.refresh_button.clicked.connect(
+            self.populate_layers
         )
 
-        if record is None:
+        self.poly_list.itemSelectionChanged.connect(
+            self.update_fields
+        )
+
+        self.run_button.clicked.connect(
+            self.run
+        )
+
+        self.cancel_button.clicked.connect(
+            self.cancel_run
+        )
+
+    # ========================================================
+    # LOGGING
+    # ========================================================
+
+    def log(self, message, level="INFO"):
+
+        timestamp = datetime.datetime.now().strftime(
+            "%H:%M:%S"
+        )
+
+        safe_message = (
+            str(message)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+
+        self.log_output.append(
+            f"[{timestamp}] {level}: {safe_message}"
+        )
+
+        print(
+            f"[FjBa Split Engine] {level}: {message}"
+        )
+
+        QtWidgets.QApplication.processEvents()
+
+    # ========================================================
+    # LOAD LAYERS
+    # ========================================================
+
+
+    def populate_layers(self):
+
+        if self.running:
             return
 
-        label = record.get("label")
+        self.line_list.clear()
+        self.poly_list.clear()
+        self.field_list.clear()
 
-        if label is not None:
+        self.layer_cache.clear()
 
-            try:
-                label.deleteLater()
+        geometry_enum = getattr(
+            QgsWkbTypes,
+            "GeometryType",
+            QgsWkbTypes
+        )
 
-            except RuntimeError:
-                pass
+        for layer in self.project.mapLayers().values():
 
-        try:
+            # Only process vector layers.
+            if layer.type() != QgsMapLayer.VectorLayer:
+                continue
 
-            widget.removeEventFilter(self)
+            if not layer.isValid():
+                continue
 
-        except (RuntimeError, AttributeError):
-            pass
+            geometry_type = layer.geometryType()
 
-    # --------------------------------------------------------
-    # BRAND EXISTING WINDOW
-    # --------------------------------------------------------
+            if geometry_type == geometry_enum.LineGeometry:
 
-    def brand_existing(self, widget):
-
-        if self._unloaded:
-            return
-
-        if isinstance(widget, QWidget):
-
-            self.register_window(widget)
-
-    # --------------------------------------------------------
-    # UNLOAD BRANDING MANAGER
-    # --------------------------------------------------------
-
-    def unload(self):
-        """
-        Release branding resources.
-
-        IMPORTANT:
-        This method must NEVER access self.action.
-        QAction belongs exclusively to FjBaGeneratedPlugin.
-        """
-
-        if self._unloaded:
-            return
-
-        self._unloaded = True
-
-        self.active = False
-
-        for key, record in list(self.windows.items()):
-
-            widget_ref = record.get("window")
-
-            widget = (
-                widget_ref()
-                if widget_ref is not None
-                else None
-            )
-
-            label = record.get("label")
-
-            if label is not None:
-
-                try:
-                    label.deleteLater()
-
-                except RuntimeError:
-                    pass
-
-            if widget is not None:
-
-                try:
-
-                    widget.removeEventFilter(self)
-
-                except (RuntimeError, AttributeError):
-                    pass
-
-        self.windows.clear()
-
-        if self.application is not None:
-
-            try:
-
-                self.application.removeEventFilter(
-                    self
+                item = QtWidgets.QListWidgetItem(
+                    layer.name()
                 )
 
-            except RuntimeError:
-                pass
-
-        self.application = None
-        self.iface = None
-        self.logo = QPixmap()
-
-
-# ============================================================
-# GENERATED PLUGIN
-# ============================================================
-
-class FjBaGeneratedPlugin:
-    """
-    Main QGIS plugin controller.
-
-    This class owns:
-        - QAction
-        - QGIS menu registration
-        - QGIS toolbar registration
-        - Launcher window
-        - Script window references
-        - About dialog
-        - Dynamic script module
-        - Branding manager lifecycle
-    """
-
-    def __init__(self, iface):
-
-        self.iface = iface
-
-        # QAction ownership belongs here.
-        self.action = None
-
-        # Plugin windows.
-        self.launch_window = None
-        self.script_window = None
-        self.about_dialog = None
-
-        # Plugin directory.
-        self.plugin_dir = os.path.dirname(
-            os.path.abspath(__file__)
-        )
-
-        # Image assets.
-        self.logo_path = os.path.join(
-            self.plugin_dir,
-            "fjba_logo.png"
-        )
-
-        self.icon_path = os.path.join(
-            self.plugin_dir,
-            "icon.png"
-        )
-
-        # Dynamic script state.
-        self._script_module = None
-        self._script_loaded = False
-        self._script_running = False
-
-        # Lifecycle state.
-        self._unloaded = False
-
-        # Branding manager.
-        self.branding = FjBaBrandingManager(
-            iface,
-            self.logo_path
-        )
-
-    # ========================================================
-    # ACTION ICON
-    # ========================================================
-
-    def _plugin_action_icon(self):
-
-        if os.path.isfile(self.icon_path):
-
-            return QIcon(
-                self.icon_path
-            )
-
-        return QIcon()
-
-    # ========================================================
-    # INITIALIZE GUI
-    # ========================================================
-
-    def initGui(self):
-        """Register plugin action in QGIS."""
-
-        if self._unloaded:
-            return
-
-        if self.action is not None:
-            return
-
-        try:
-
-            self.action = QAction(
-                self._plugin_action_icon(),
-                "Open " + PLUGIN_DISPLAY_NAME,
-                self.iface.mainWindow()
-            )
-
-            self.action.triggered.connect(
-                self.run
-            )
-
-            self.iface.addPluginToMenu(
-                PLUGIN_MENU_NAME,
-                self.action
-            )
-
-            self.iface.addToolBarIcon(
-                self.action
-            )
-
-            log_message(
-                "Plugin GUI initialized successfully."
-            )
-
-        except Exception:
-
-            log_exception(
-                "Could not initialize plugin GUI"
-            )
-
-            # Clean up a partially registered action.
-            self._remove_action()
-
-            raise
-
-    # ========================================================
-    # REMOVE ACTION
-    # ========================================================
-
-    def _remove_action(self):
-        """
-        Remove the QAction from QGIS.
-
-        This method belongs to FjBaGeneratedPlugin only.
-        """
-
-        if self.action is None:
-            return
-
-        action = self.action
-
-        # Clear the reference first to avoid duplicate cleanup.
-        self.action = None
-
-        try:
-
-            action.triggered.disconnect(
-                self.run
-            )
-
-        except (RuntimeError, TypeError):
-            pass
-
-        try:
-
-            self.iface.removePluginMenu(
-                PLUGIN_MENU_NAME,
-                action
-            )
-
-        except (RuntimeError, AttributeError):
-            pass
-
-        except Exception:
-
-            log_exception(
-                "Could not remove plugin menu action"
-            )
-
-        try:
-
-            self.iface.removeToolBarIcon(
-                action
-            )
-
-        except (RuntimeError, AttributeError):
-            pass
-
-        except Exception:
-
-            log_exception(
-                "Could not remove toolbar action"
-            )
-
-        try:
-
-            action.deleteLater()
-
-        except RuntimeError:
-            pass
-
-    # ========================================================
-    # DYNAMIC SCRIPT MODULE CLEANUP
-    # ========================================================
-
-    def _remove_script_module(self):
-        """
-        Remove the dynamically loaded script module.
-
-        Prevents an old module reference from remaining
-        in sys.modules after plugin unloading.
-        """
-
-        module_name = (
-            self.__class__.__module__
-            + SCRIPT_MODULE_SUFFIX
-        )
-
-        try:
-
-            sys.modules.pop(
-                module_name,
-                None
-            )
-
-        except Exception:
-
-            log_exception(
-                "Could not remove dynamic script module"
-            )
-
-        self._script_module = None
-        self._script_loaded = False
-
-    # ========================================================
-    # UNLOAD PLUGIN
-    # ========================================================
-
-    def unload(self):
-        """
-        Safely unload the plugin.
-
-        Correct ownership:
-            - self.action belongs to this class.
-            - self.branding.unload() manages branding only.
-        """
-
-        if self._unloaded:
-            return
-
-        self._unloaded = True
-
-        log_message(
-            "Starting plugin unload."
-        )
-
-        # ----------------------------------------------------
-        # 1. Remove QGIS QAction, menu and toolbar entry.
-        # ----------------------------------------------------
-
-        self._remove_action()
-
-        # ----------------------------------------------------
-        # 2. Stop branding manager.
-        # ----------------------------------------------------
-
-        if self.branding is not None:
-
-            branding = self.branding
-
-            self.branding = None
-
-            try:
-
-                branding.unload()
-
-            except Exception:
-
-                log_exception(
-                    "Could not unload branding manager"
+                item.setData(
+                    USER_ROLE,
+                    layer.id()
                 )
 
-        # ----------------------------------------------------
-        # 3. Close plugin-owned windows.
-        # ----------------------------------------------------
+                self.line_list.addItem(item)
 
-        for name in (
-            "about_dialog",
-            "script_window",
-            "launch_window"
+            elif geometry_type == geometry_enum.PolygonGeometry:
+
+                item = QtWidgets.QListWidgetItem(
+                    layer.name()
+                )
+
+                item.setData(
+                    USER_ROLE,
+                    layer.id()
+                )
+
+                self.poly_list.addItem(item)
+
+            self.layer_cache[layer.id()] = layer
+
+        self.log(
+            "Project layers refreshed",
+            "DONE"
+        )
+
+    # ========================================================
+    # GET SELECTED LAYERS
+    # ========================================================
+
+    def selected_layers(self, widget):
+
+        layers = []
+
+        for item in widget.selectedItems():
+
+            layer_id = item.data(
+                USER_ROLE
+            )
+
+            layer = self.project.mapLayer(
+                layer_id
+            )
+
+            if layer and layer.isValid():
+                layers.append(layer)
+
+        return layers
+
+    # ========================================================
+    # UPDATE POLYGON FIELDS
+    # ========================================================
+
+    def update_fields(self):
+
+        self.field_list.clear()
+
+        for layer in self.selected_layers(
+            self.poly_list
         ):
 
-            widget = getattr(
-                self,
-                name,
-                None
-            )
+            for field in layer.fields():
 
-            if widget is not None:
-
-                safe_close(widget)
-
-                setattr(
-                    self,
-                    name,
-                    None
+                item = QtWidgets.QListWidgetItem(
+                    f"{layer.name()}  ::  {field.name()}"
                 )
 
-        # ----------------------------------------------------
-        # 4. Remove dynamically loaded module.
-        # ----------------------------------------------------
+                item.setData(
+                    USER_ROLE,
+                    (layer.id(), field.name())
+                )
 
-        self._remove_script_module()
+                self.field_list.addItem(item)
 
-        self._script_running = False
+    # ========================================================
+    # GET SELECTED FIELDS
+    # ========================================================
 
-        log_message(
-            "Plugin unloaded successfully."
+    def selected_fields(self):
+
+        result = []
+
+        for item in self.field_list.selectedItems():
+
+            data = item.data(USER_ROLE)
+
+            if data:
+                result.append(data)
+
+        return result
+
+    # ========================================================
+    # CHECK INPUT CRS
+    # ========================================================
+
+    def validate_crs(self, line_layers, poly_layers):
+
+        all_layers = line_layers + poly_layers
+
+        if not line_layers:
+            raise ValueError("No line layers selected.")
+
+        if not poly_layers:
+            raise ValueError("No polygon layers selected.")
+
+        reference_crs = line_layers[0].crs()
+
+        if not reference_crs.isValid():
+            raise ValueError("The line layer CRS is invalid.")
+
+        for layer in all_layers:
+
+            if not layer.crs().isValid():
+                raise ValueError(
+                    f"Layer '{layer.name()}' has an invalid CRS."
+                )
+
+            if layer.crs() != reference_crs:
+
+                raise ValueError(
+                    "All selected line and polygon layers must use "
+                    "the same CRS. Reproject your layers before processing."
+                )
+
+    # ========================================================
+    # CANCEL
+    # ========================================================
+
+    def cancel_run(self):
+
+        if not self.running:
+            return
+
+        self.cancel_flag = True
+
+        self.status.setText(
+            "Cancellation requested..."
+        )
+
+        self.log(
+            "Cancellation requested",
+            "WARNING"
         )
 
     # ========================================================
-    # MAIN LAUNCHER WINDOW
+    # PROCESSING HELPER
+    # ========================================================
+
+    def run_algorithm(self, algorithm, parameters):
+
+        if self.cancel_flag:
+            raise InterruptedError(
+                "Processing cancelled."
+            )
+
+        return processing.run(
+            algorithm,
+            parameters,
+            feedback=self.feedback
+        )
+
+    # ========================================================
+    # MAIN PROCESSING
     # ========================================================
 
     def run(self):
-        """Open the main plugin launcher."""
 
-        if self._unloaded:
+        if self.running:
             return
 
-        if self.launch_window is not None:
+        self.cancel_flag = False
+        self.running = True
 
-            try:
+        self.progress.setValue(0)
 
-                self.launch_window.show()
-                self.launch_window.raise_()
-                self.launch_window.activateWindow()
+        self.run_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
 
-                return
-
-            except RuntimeError:
-
-                self.launch_window = None
+        output_name = self.output_name.text().strip()
 
         try:
 
-            window = QDialog(
-                self.iface.mainWindow()
+            if not output_name:
+                raise ValueError(
+                    "Enter an output layer name."
+                )
+
+            line_layers = self.selected_layers(
+                self.line_list
             )
 
-            window.setWindowTitle(
-                PLUGIN_DISPLAY_NAME
+            poly_layers = self.selected_layers(
+                self.poly_list
             )
 
-            window.setMinimumSize(
-                480,
-                450
+            selected_fields = self.selected_fields()
+
+            self.validate_crs(
+                line_layers,
+                poly_layers
             )
 
-            window.resize(
-                540,
-                520
+            self.feedback = SplitProcessingFeedback(
+                self
             )
 
-            window.setWindowIcon(
-                QIcon(self.logo_path)
+            self.log(
+                "Starting Ultimate Split Engine",
+                "START"
             )
 
-            window.setWindowFlags(
-                window.windowFlags()
-                | WINDOW_MINIMIZE
-                | WINDOW_MAXIMIZE
-                | WINDOW_CLOSE
+            # ------------------------------------------------
+            # 01. FIX POLYGONS
+            # ------------------------------------------------
+
+            self.status.setText(
+                "01/06  ·  Fixing polygon geometries..."
             )
 
-            window.setStyleSheet("""
-                QDialog {
-                    background-color: #101b24;
-                    color: #e8f0ed;
-                }
+            self.progress.setValue(5)
 
-                QLabel {
-                    color: #e8f0ed;
-                }
+            fixed_polys = {}
 
-                QLabel#title {
-                    color: #70d6a3;
-                    font-size: 21pt;
-                    font-weight: bold;
-                }
+            for i, layer in enumerate(poly_layers):
 
-                QLabel#subtitle {
-                    color: #9aada8;
-                    font-size: 10pt;
-                }
+                if self.cancel_flag:
+                    raise InterruptedError(
+                        "Processing cancelled."
+                    )
 
-                QPushButton {
-                    background-color: #243a42;
-                    color: #e8f0ed;
-                    border: 1px solid #41645a;
-                    border-radius: 7px;
-                    padding: 11px 18px;
-                    min-height: 22px;
-                    font-size: 10pt;
-                }
+                self.log(
+                    f"Fixing: {layer.name()}"
+                )
 
-                QPushButton:hover {
-                    background-color: #31534b;
-                    border-color: #70d6a3;
-                }
+                result = self.run_algorithm(
+                    "native:fixgeometries",
+                    {
+                        "INPUT": layer,
+                        "OUTPUT": "memory:"
+                    }
+                )
 
-                QPushButton#openButton {
-                    background-color: #267a59;
-                    color: white;
-                    font-weight: bold;
-                    border: 1px solid #56b88b;
-                }
+                fixed_polys[layer.id()] = result["OUTPUT"]
 
-                QPushButton#openButton:hover {
-                    background-color: #32976e;
-                }
-            """)
-
-            layout = QVBoxLayout(
-                window
-            )
-
-            layout.setContentsMargins(
-                28,
-                24,
-                28,
-                24
-            )
-
-            layout.setSpacing(13)
-
-            # Logo.
-            logo_label = QLabel()
-
-            logo_label.setAlignment(
-                ALIGN_CENTER
-            )
-
-            logo_label.setMinimumHeight(
-                145
-            )
-
-            pixmap = QPixmap(
-                self.logo_path
-            )
-
-            if not pixmap.isNull():
-
-                logo_label.setPixmap(
-                    pixmap.scaled(
-                        340,
-                        135,
-                        KEEP_ASPECT,
-                        SMOOTH_TRANSFORM
+                self.progress.setValue(
+                    5 + int(
+                        15 * (i + 1) / len(poly_layers)
                     )
                 )
 
-            layout.addWidget(
-                logo_label
+            # ------------------------------------------------
+            # 02. MERGE LINE LAYERS
+            # ------------------------------------------------
+
+            self.status.setText(
+                "02/06  ·  Merging line layers..."
             )
 
-            # Title.
-            title = QLabel(
-                PLUGIN_DISPLAY_NAME
+            self.progress.setValue(22)
+
+            merged_lines = self.run_algorithm(
+                "native:mergevectorlayers",
+                {
+                    "LAYERS": line_layers,
+                    "CRS": line_layers[0].crs(),
+                    "OUTPUT": "memory:"
+                }
+            )["OUTPUT"]
+
+            merged_lines = self.run_algorithm(
+                "native:multiparttosingleparts",
+                {
+                    "INPUT": merged_lines,
+                    "OUTPUT": "memory:"
+                }
+            )["OUTPUT"]
+
+            # ------------------------------------------------
+            # 03. EXTRACT POLYGON BOUNDARIES
+            # ------------------------------------------------
+
+            self.status.setText(
+                "03/06  ·  Extracting polygon boundaries..."
             )
 
-            title.setObjectName(
-                "title"
+            self.progress.setValue(32)
+
+            boundary_layers = []
+
+            for layer_id, fixed_layer in fixed_polys.items():
+
+                boundary = self.run_algorithm(
+                    "native:polygonstolines",
+                    {
+                        "INPUT": fixed_layer,
+                        "OUTPUT": "memory:"
+                    }
+                )["OUTPUT"]
+
+                boundary_layers.append(boundary)
+
+            merged_boundaries = self.run_algorithm(
+                "native:mergevectorlayers",
+                {
+                    "LAYERS": boundary_layers,
+                    "CRS": line_layers[0].crs(),
+                    "OUTPUT": "memory:"
+                }
+            )["OUTPUT"]
+
+            # ------------------------------------------------
+            # 04. SPLIT LINES
+            # ------------------------------------------------
+
+            self.status.setText(
+                "04/06  ·  Splitting lines..."
             )
 
-            title.setAlignment(
-                ALIGN_CENTER
-            )
+            self.progress.setValue(40)
 
-            title.setWordWrap(
-                True
-            )
+            split_lines = self.run_algorithm(
+                "native:splitwithlines",
+                {
+                    "INPUT": merged_lines,
+                    "LINES": merged_boundaries,
+                    "OUTPUT": "memory:"
+                }
+            )["OUTPUT"]
 
-            layout.addWidget(
-                title
-            )
+            split_lines = self.run_algorithm(
+                "native:multiparttosingleparts",
+                {
+                    "INPUT": split_lines,
+                    "OUTPUT": "memory:"
+                }
+            )["OUTPUT"]
 
-            # Subtitle.
-            subtitle = QLabel(
-                "Powered by FjBa Plugin Generator V8.3 PRO"
-            )
+            total = split_lines.featureCount()
 
-            subtitle.setObjectName(
-                "subtitle"
-            )
-
-            subtitle.setAlignment(
-                ALIGN_CENTER
-            )
-
-            subtitle.setWordWrap(
-                True
-            )
-
-            layout.addWidget(
-                subtitle
-            )
-
-            # Open button.
-            open_button = QPushButton(
-                "Open Plugin"
-            )
-
-            open_button.setObjectName(
-                "openButton"
-            )
-
-            open_button.clicked.connect(
-                self.open_generated_script
-            )
-
-            layout.addWidget(
-                open_button
-            )
-
-            # About button.
-            about_button = QPushButton(
-                "About FjBa"
-            )
-
-            about_button.clicked.connect(
-                self.show_about
-            )
-
-            layout.addWidget(
-                about_button
-            )
-
-            # Close button.
-            close_button = QPushButton(
-                "Close"
-            )
-
-            close_button.clicked.connect(
-                window.close
-            )
-
-            layout.addWidget(
-                close_button
-            )
-
-            self.launch_window = window
-
-            if self.branding is not None:
-
-                self.branding.brand_existing(
-                    window
+            if total == 0:
+                raise ValueError(
+                    "No output line segments were created."
                 )
 
-            window.show()
-            window.raise_()
-            window.activateWindow()
-
-        except Exception:
-
-            log_exception(
-                "Could not open plugin launcher"
+            self.log(
+                f"Created {total} line segments"
             )
 
-            QMessageBox.critical(
-                self.iface.mainWindow(),
-                "FjBa Plugin Error",
-                "The plugin launcher could not be opened.\n\n"
-                + traceback.format_exc()
+            # ------------------------------------------------
+            # 05. BUILD SPATIAL INDEXES
+            # ------------------------------------------------
+
+            self.status.setText(
+                "05/06  ·  Building spatial indexes..."
             )
 
-    # ========================================================
-    # LOAD GENERATED SCRIPT
-    # ========================================================
+            self.progress.setValue(50)
 
-    def _load_script_module(self):
-        """
-        Load script.py dynamically.
+            polygon_data = {}
 
-        The builtins.iface compatibility reference is
-        temporary and is restored after module loading.
-        """
+            for layer_id, fixed_layer in fixed_polys.items():
 
-        if self._unloaded:
+                poly_features = list(
+                    fixed_layer.getFeatures()
+                )
 
-            raise RuntimeError(
-                "The plugin has already been unloaded."
+                index = QgsSpatialIndex()
+
+                index.addFeatures(
+                    poly_features
+                )
+
+                feature_dict = {
+                    feature.id(): feature
+                    for feature in poly_features
+                }
+
+                polygon_data[layer_id] = {
+                    "index": index,
+                    "features": feature_dict,
+                    "layer": fixed_layer
+                }
+
+            # ------------------------------------------------
+            # 06. CREATE OUTPUT FIELDS
+            # ------------------------------------------------
+
+            self.status.setText(
+                "06/06  ·  Preparing output..."
             )
 
-        if self._script_loaded:
-
-            return self._script_module
-
-        script_path = os.path.join(
-            self.plugin_dir,
-            "script.py"
-        )
-
-        if not os.path.isfile(script_path):
-
-            raise FileNotFoundError(
-                "Generated script.py was not found:\n"
-                + script_path
+            output_geometry_name = QgsWkbTypes.displayString(
+                split_lines.wkbType()
             )
 
-        module_name = (
-            self.__class__.__module__
-            + SCRIPT_MODULE_SUFFIX
-        )
+            if not output_geometry_name or output_geometry_name == "Unknown":
+                raise RuntimeError(
+                    "The split result has an unsupported geometry type."
+                )
 
-        had_iface = hasattr(
-            builtins,
-            "iface"
-        )
+            out = QgsVectorLayer(
+                output_geometry_name,
+                output_name,
+                "memory"
+            )
+            out.setCrs(split_lines.crs())
 
-        previous_iface = getattr(
-            builtins,
-            "iface",
-            None
-        )
+            if not out.isValid():
+                raise RuntimeError(
+                    "Could not create output layer."
+                )
 
-        builtins.iface = self.iface
+            provider = out.dataProvider()
 
-        try:
+            output_fields = QgsFields()
 
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                script_path
+            for field in split_lines.fields():
+                output_fields.append(
+                    QgsField(field)
+                )
+
+            field_mapping = []
+
+            used_names = {
+                field.name().lower()
+                for field in output_fields
+            }
+
+            for layer_id, field_name in selected_fields:
+
+                layer = self.project.mapLayer(layer_id)
+
+                if layer is None:
+                    continue
+
+                fixed_layer = fixed_polys[layer_id]
+
+                source_index = (
+                    fixed_layer.fields().indexOf(
+                        field_name
+                    )
+                )
+
+                if source_index < 0:
+                    continue
+
+                source_field = fixed_layer.fields()[
+                    source_index
+                ]
+
+                prefix = re.sub(
+                    r"[^A-Za-z0-9_]",
+                    "_",
+                    layer.name()
+                )
+
+                base_name = (
+                    f"{prefix}_{field_name}"
+                )
+
+                output_field_name = base_name
+
+                counter = 2
+
+                while output_field_name.lower() in used_names:
+
+                    output_field_name = (
+                        f"{base_name}_{counter}"
+                    )
+
+                    counter += 1
+
+                used_names.add(
+                    output_field_name.lower()
+                )
+
+                new_field = QgsField(
+                    source_field
+                )
+
+                new_field.setName(
+                    output_field_name
+                )
+
+                output_fields.append(
+                    new_field
+                )
+
+                field_mapping.append({
+                    "layer_id": layer_id,
+                    "field_name": field_name,
+                    "field_index": source_index,
+                    "output_name": output_field_name
+                })
+
+            if not provider.addAttributes(list(output_fields)):
+                raise RuntimeError("Could not create the output attribute fields.")
+
+            out.updateFields()
+
+            # ------------------------------------------------
+            # ATTRIBUTE TRANSFER
+            # ------------------------------------------------
+
+            self.status.setText(
+                "Assigning polygon attributes..."
             )
 
-            if (
-                spec is None
-                or spec.loader is None
+            self.progress.setValue(55)
+
+            new_features = []
+
+            processed_count = 0
+            mapped_layer_ids = {
+                mapping["layer_id"] for mapping in field_mapping
+            }
+
+            for i, feat in enumerate(
+                split_lines.getFeatures()
             ):
 
-                raise ImportError(
-                    "Could not create a module loader "
-                    "for script.py."
-                )
-
-            module = importlib.util.module_from_spec(
-                spec
-            )
-
-            sys.modules[module_name] = module
-
-            try:
-
-                spec.loader.exec_module(
-                    module
-                )
-
-            except Exception:
-
-                sys.modules.pop(
-                    module_name,
-                    None
-                )
-
-                raise
-
-            self._script_module = module
-            self._script_loaded = True
-
-            log_message(
-                "Generated script.py loaded successfully."
-            )
-
-            return module
-
-        finally:
-
-            if had_iface:
-
-                builtins.iface = previous_iface
-
-            else:
-
-                try:
-
-                    del builtins.iface
-
-                except AttributeError:
-                    pass
-
-    # ========================================================
-    # DETERMINE MAIN FUNCTION ARGUMENTS
-    # ========================================================
-
-    @staticmethod
-    def _main_requires_iface(entry):
-        """
-        Determine whether main() accepts an iface argument.
-
-        Supports:
-            def main()
-            def main(iface)
-            def main(*args)
-        """
-
-        try:
-
-            signature = inspect.signature(
-                entry
-            )
-
-        except (ValueError, TypeError):
-
-            # Conservative fallback.
-            return True
-
-        parameters = list(
-            signature.parameters.values()
-        )
-
-        positional = [
-
-            parameter
-
-            for parameter in parameters
-
-            if parameter.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD
-            )
-
-        ]
-
-        has_varargs = any(
-
-            parameter.kind == inspect.Parameter.VAR_POSITIONAL
-
-            for parameter in parameters
-
-        )
-
-        return bool(
-            positional or has_varargs
-        )
-
-    # ========================================================
-    # OPEN GENERATED SCRIPT
-    # ========================================================
-
-    def open_generated_script(self):
-        """Execute the generated script.py main() function."""
-
-        if self._script_running or self._unloaded:
-            return
-
-        self._script_running = True
-
-        try:
-
-            script_module = self._load_script_module()
-
-            entry = getattr(
-                script_module,
-                "main",
-                None
-            )
-
-            if not callable(entry):
-
-                QMessageBox.warning(
-                    self.launch_window,
-                    "FjBa Plugin",
-                    "The generated script does not contain "
-                    "a callable main() function."
-                )
-
-                return
-
-            needs_iface = self._main_requires_iface(
-                entry
-            )
-
-            if self.branding is not None:
-
-                self.branding.start_capture()
-
-            try:
-
-                if needs_iface:
-
-                    result = entry(
-                        self.iface
+                if self.cancel_flag:
+                    raise InterruptedError(
+                        "Processing cancelled."
                     )
 
-                else:
+                if not feat.hasGeometry():
+                    continue
 
-                    result = entry()
+                geom = feat.geometry()
 
-            finally:
+                if geom.isEmpty():
+                    continue
 
-                if self.branding is not None:
+                attrs = feat.attributes()
 
-                    self.branding.stop_capture()
+                # Determine the winning polygon once per source polygon layer.
+                # All selected attributes from that layer are then read from the
+                # same winning feature, avoiding repeated GEOS intersections.
+                best_polygon_by_layer = {}
 
-            if isinstance(result, QWidget):
+                for layer_id, data in polygon_data.items():
 
-                self.script_window = result
+                    if layer_id not in mapped_layer_ids:
+                        continue
 
-                if self.branding is not None:
+                    if self.cancel_flag:
+                        raise InterruptedError("Processing cancelled.")
 
-                    self.branding.brand_existing(
-                        result
+                    candidates = sorted(
+                        data["index"].intersects(geom.boundingBox())
                     )
 
-                result.show()
-                result.raise_()
-                result.activateWindow()
+                    best_polygon = None
+                    best_score = 0.0
 
-            log_message(
-                "Generated script started successfully."
+                    for polygon_id in candidates:
+
+                        if self.cancel_flag:
+                            raise InterruptedError("Processing cancelled.")
+
+                        polygon_feature = data["features"].get(polygon_id)
+                        if polygon_feature is None or not polygon_feature.hasGeometry():
+                            continue
+
+                        polygon_geometry = polygon_feature.geometry()
+                        if polygon_geometry.isNull() or polygon_geometry.isEmpty():
+                            continue
+
+                        if not polygon_geometry.intersects(geom):
+                            continue
+
+                        intersection = geom.intersection(polygon_geometry)
+                        if intersection.isNull() or intersection.isEmpty():
+                            continue
+
+                        score = intersection.length()
+
+                        # Stable tie behavior: sorted feature IDs mean the first
+                        # feature wins when intersection lengths are equal.
+                        if score > best_score:
+                            best_score = score
+                            best_polygon = polygon_feature
+
+                    best_polygon_by_layer[layer_id] = best_polygon
+
+                new_values = []
+
+                for mapping in field_mapping:
+
+                    winning_polygon = best_polygon_by_layer.get(
+                        mapping["layer_id"]
+                    )
+
+                    if winning_polygon is None:
+                        new_values.append(None)
+                    else:
+                        new_values.append(
+                            winning_polygon.attribute(mapping["field_index"])
+                        )
+
+                new_feat = QgsFeature(
+                    out.fields()
+                )
+
+                new_feat.setGeometry(
+                    QgsGeometry(geom)
+                )
+
+                new_feat.setAttributes(
+                    attrs + new_values
+                )
+
+                new_features.append(
+                    new_feat
+                )
+
+                processed_count += 1
+
+                self.progress.setValue(
+                    55 + int(
+                        40 * (i + 1) / max(1, total)
+                    )
+                )
+
+                if i % 100 == 0:
+
+                    self.status.setText(
+                        f"Assigning attributes {i + 1}/{total}"
+                    )
+
+                    QtWidgets.QApplication.processEvents()
+
+            # ------------------------------------------------
+            # ADD FEATURES
+            # ------------------------------------------------
+
+            if self.cancel_flag:
+                raise InterruptedError(
+                    "Processing cancelled."
+                )
+
+            success, added_features = provider.addFeatures(
+                new_features
+            )
+
+            if not success:
+                raise RuntimeError(
+                    "Could not write all output features."
+                )
+
+            out.updateExtents()
+
+            # ------------------------------------------------
+            # ADD TO QGIS PROJECT
+            # ------------------------------------------------
+
+            self.project.addMapLayer(out)
+
+            self.progress.setValue(100)
+
+            self.status.setText(
+                "Completed successfully"
+            )
+
+            self.log(
+                f"Output: {output_name}",
+                "DONE"
+            )
+
+            self.log(
+                f"Output features: {processed_count}",
+                "DONE"
+            )
+
+            self.log(
+                f"Transferred fields: {len(field_mapping)}",
+                "DONE"
+            )
+
+            QtWidgets.QMessageBox.information(
+                self,
+                "FjBa Basic Split Engine",
+                "Processing completed successfully!\n\n"
+                f"Output layer: {output_name}\n"
+                f"Features: {processed_count}\n"
+                f"Transferred fields: {len(field_mapping)}"
+            )
+
+        except InterruptedError as error:
+
+            self.status.setText(
+                "Processing cancelled"
+            )
+
+            self.log(
+                str(error),
+                "WARNING"
             )
 
         except Exception as error:
 
-            if self.branding is not None:
-
-                self.branding.stop_capture()
-
-            log_exception(
-                "Generated script execution failed"
+            self.status.setText(
+                "Processing failed"
             )
 
-            QMessageBox.critical(
-                self.launch_window,
-                "FjBa Plugin Error",
-                "The generated script could not be started:\n\n"
-                + str(error)
-                + "\n\nTechnical details:\n"
-                + traceback.format_exc()
+            self.log(
+                str(error),
+                "ERROR"
+            )
+
+            self.log(
+                traceback.format_exc(),
+                "TRACEBACK"
+            )
+
+            QtWidgets.QMessageBox.critical(
+                self,
+                "FjBa Split Engine Error",
+                str(error)
             )
 
         finally:
 
-            self._script_running = False
+            self.running = False
+
+            self.feedback = None
+
+            self.run_button.setEnabled(True)
+
+            self.refresh_button.setEnabled(True)
+
+            self.cancel_button.setEnabled(False)
 
     # ========================================================
-    # ABOUT WINDOW
+    # CLOSE
     # ========================================================
 
-    def show_about(self):
-        """Display plugin information."""
+    def closeEvent(self, event):
 
-        if self._unloaded:
+        if self.running:
+
+            answer = QtWidgets.QMessageBox.question(
+                self,
+                "Processing active",
+                "Processing is still active. Request cancellation?",
+                MESSAGE_YES
+                | MESSAGE_NO,
+                MESSAGE_NO
+            )
+
+            if answer != MESSAGE_YES:
+                event.ignore()
+                return
+
+            self.cancel_flag = True
+
+            # Keep the dialog alive until synchronous
+            # processing has returned safely.
+
+            event.ignore()
             return
 
-        if self.about_dialog is not None:
+        if self.logo is not None:
+
+            self.logo.stop()
+
+            self.logo = None
+
+        event.accept()
+
+
+# ============================================================
+# QGIS ENTRY POINT
+# ============================================================
+
+_fjba_split_window = None
+
+
+
+def main(iface):
+
+    global _fjba_split_window
+
+    try:
+
+        if _fjba_split_window is not None:
 
             try:
 
-                self.about_dialog.show()
-                self.about_dialog.raise_()
-                self.about_dialog.activateWindow()
+                if _fjba_split_window.isVisible():
 
-                return
+                    _fjba_split_window.raise_()
+                    _fjba_split_window.activateWindow()
+
+                    return _fjba_split_window
 
             except RuntimeError:
 
-                self.about_dialog = None
+                # Previous Qt window was already deleted.
+                _fjba_split_window = None
 
-        try:
+        _fjba_split_window = UltimateSplitEngineBasic(
+            iface
+        )
 
-            dialog = QDialog(
-                self.launch_window
-            )
+        _fjba_split_window.show()
+        _fjba_split_window.raise_()
+        _fjba_split_window.activateWindow()
 
-            dialog.setWindowTitle(
-                "About FjBa"
-            )
+        return _fjba_split_window
 
-            dialog.setMinimumWidth(
-                390
-            )
+    except Exception:
 
-            dialog.setWindowIcon(
-                QIcon(self.logo_path)
-            )
+        _fjba_split_window = None
 
-            dialog.setStyleSheet("""
-                QDialog {
-                    background-color: #101b24;
-                    color: #e8f0ed;
-                }
+        QtWidgets.QMessageBox.critical(
+            iface.mainWindow(),
+            "FjBa Basic Split Engine Error",
+            traceback.format_exc()
+        )
 
-                QLabel {
-                    color: #e8f0ed;
-                    font-size: 10pt;
-                }
+        return None
 
-                QPushButton {
-                    background-color: #267a59;
-                    color: white;
-                    border: 1px solid #56b88b;
-                    border-radius: 6px;
-                    padding: 8px 18px;
-                }
-
-                QPushButton:hover {
-                    background-color: #32976e;
-                }
-            """)
-
-            layout = QVBoxLayout(
-                dialog
-            )
-
-            layout.setContentsMargins(
-                22,
-                22,
-                22,
-                22
-            )
-
-            layout.setSpacing(
-                14
-            )
-
-            # Logo.
-            pixmap = QPixmap(
-                self.logo_path
-            )
-
-            if not pixmap.isNull():
-
-                logo = QLabel()
-
-                logo.setAlignment(
-                    ALIGN_CENTER
-                )
-
-                logo.setPixmap(
-                    pixmap.scaled(
-                        260,
-                        115,
-                        KEEP_ASPECT,
-                        SMOOTH_TRANSFORM
-                    )
-                )
-
-                layout.addWidget(
-                    logo
-                )
-
-            # Description.
-            description = QLabel(
-                "This QGIS plugin was generated with "
-                "FjBa Plugin Generator V8.3 PRO.\n\n"
-                "The QGIS action icon and FjBa brand logo "
-                "are separate image assets.\n\n"
-                "Supported generated-plugin windows can be "
-                "automatically branded with the FjBa logo."
-            )
-
-            description.setAlignment(
-                ALIGN_CENTER
-            )
-
-            description.setWordWrap(
-                True
-            )
-
-            layout.addWidget(
-                description
-            )
-
-            # Close button.
-            close_button = QPushButton(
-                "Close"
-            )
-
-            close_button.clicked.connect(
-                dialog.accept
-            )
-
-            layout.addWidget(
-                close_button
-            )
-
-            self.about_dialog = dialog
-
-            if self.branding is not None:
-
-                self.branding.brand_existing(
-                    dialog
-                )
-
-            dialog.show()
-            dialog.raise_()
-            dialog.activateWindow()
-
-        except Exception:
-
-            log_exception(
-                "Could not open About dialog"
-            )
-
-            QMessageBox.warning(
-                self.iface.mainWindow(),
-                "FjBa Plugin",
-                "The About window could not be opened."
-            )
 
 
 # ============================================================
-# QGIS PLUGIN FACTORY
+# END OF FjBa BASIC ULTIMATE SPLIT ENGINE 1.2
 # ============================================================
-
-def classFactory(iface):
-    """
-    QGIS plugin entry point.
-
-    QGIS calls this function when loading the plugin.
-    """
-
-    return FjBaGeneratedPlugin(iface)
