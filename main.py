@@ -115,25 +115,22 @@ class FjBaBrandingManager(QObject):
             label.setObjectName("fjbaBrandOverlay")
 
             label.setAttribute(
-                Qt.WA_TransparentForMouseEvents,
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents,
                 True
             )
 
             label.setAttribute(
-                Qt.WA_NoSystemBackground,
+                Qt.WidgetAttribute.WA_NoSystemBackground,
                 True
             )
 
-            label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet(
-                "background: transparent; border: none;"
-            )
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             scaled = self.logo.scaled(
                 112,
                 48,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
 
             label.setPixmap(scaled)
@@ -191,56 +188,27 @@ class FjBaBrandingManager(QObject):
         if isinstance(widget, QWidget):
             self.register_window(widget)
 
-
     def unload(self):
 
-        if self.action is not None:
+        self.active = False
 
+        for record in list(self.windows.values()):
             try:
-                self.iface.removePluginMenu(
-                    "&FjBa Generated Plugins",
-                    self.action
-                )
-            except (RuntimeError, AttributeError) as error:
-                QgsMessageLog.logMessage(
-                    f"Could not remove plugin menu action: {error}",
-                    PLUGIN_DISPLAY_NAME,
-                    Qgis.Warning
-                )
+                record["label"].deleteLater()
+            except RuntimeError:
+                # The Qt label may already have been destroyed.
+                continue
 
+        self.windows.clear()
+
+        if self.application is not None:
             try:
-                self.iface.removeToolBarIcon(self.action)
-            except (RuntimeError, AttributeError) as error:
-                QgsMessageLog.logMessage(
-                    f"Could not remove toolbar icon: {error}",
-                    PLUGIN_DISPLAY_NAME,
-                    Qgis.Warning
-                )
+                self.application.removeEventFilter(self)
+            except RuntimeError:
+                # The Qt application may already be shutting down.
+                pass
 
-            self.action = None
-
-        self.branding.unload()
-
-        for name in (
-            "launch_window",
-            "script_window",
-            "about_dialog",
-        ):
-
-            widget = getattr(self, name, None)
-
-            if widget is not None:
-
-                try:
-                    widget.close()
-                except RuntimeError as error:
-                    QgsMessageLog.logMessage(
-                        f"Could not close {name}: {error}",
-                        PLUGIN_DISPLAY_NAME,
-                        Qgis.Warning
-                    )
-
-                setattr(self, name, None)
+        self.application = None
 
 
 class FjBaGeneratedPlugin:
